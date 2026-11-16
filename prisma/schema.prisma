@@ -1,0 +1,343 @@
+// Verified AI/ML Engineer Talent Index — data model (requirements book §5)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  candidate
+  recruiter
+  admin
+}
+
+enum UserStatus {
+  active
+  suspended
+}
+
+enum SeniorityBand {
+  junior
+  mid
+}
+
+enum CurrentStatus {
+  open
+  employed
+  not_looking
+}
+
+enum ProjectScale {
+  toy
+  coursework
+  production
+  oss
+}
+
+enum SkillCategory {
+  model_type
+  framework
+  deployment
+  data
+  other
+}
+
+enum VerificationStatus {
+  unverified
+  pending
+  verified
+  failed
+  manual_review
+}
+
+enum VerificationMethod {
+  repo
+  deployment
+  credential
+  manual
+}
+
+enum EntityType {
+  skill
+  credential
+  project
+}
+
+enum JobStatus {
+  queued
+  running
+  passed
+  failed
+  manual_review
+}
+
+enum BillingStatus {
+  trial
+  active
+  past_due
+  canceled
+}
+
+enum InterestStatus {
+  sent
+  accepted
+  declined
+  expired
+}
+
+model User {
+  id               String        @id @default(cuid())
+  email            String        @unique
+  passwordHash     String?
+  role             Role
+  status           UserStatus    @default(active)
+  emailVerified    Boolean       @default(false)
+  emailVerifyToken String?       @unique
+  inviteToken      String?       @unique
+  createdAt        DateTime      @default(now())
+  profile          CandidateProfile?
+  recruiter        RecruiterAccount?
+  sessions         Session[]
+  auditLogs        AuditLog[]
+
+  @@index([role, status])
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model CandidateProfile {
+  id                String          @id @default(cuid())
+  userId            String          @unique
+  fullName          String
+  headline          String          @default("")
+  location          String          @default("")
+  yearsExperience   Int             @default(0)
+  seniorityBand     SeniorityBand   @default(junior)
+  currentStatus     CurrentStatus   @default(open)
+  contactEmailPublic String?
+  visible           Boolean         @default(true)
+  completenessScore Int             @default(0)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects          Project[]
+  skills            SkillClaim[]
+  credentials       Credential[]
+  interests         InterestRequest[]
+  shortlistItems    ShortlistItem[]
+
+  @@index([visible, seniorityBand])
+  @@index([yearsExperience])
+  @@index([updatedAt])
+}
+
+model Project {
+  id                 String             @id @default(cuid())
+  profileId          String
+  title              String
+  problem            String             @default("")
+  approach           String             @default("")
+  result             String             @default("")
+  repoUrl            String?
+  deploymentUrl      String?
+  projectScale       ProjectScale       @default(coursework)
+  repoStatus         VerificationStatus @default(unverified)
+  deploymentStatus   VerificationStatus @default(unverified)
+  repoNote           String?
+  deploymentNote     String?
+  repoVerified       Boolean            @default(false)
+  deploymentVerified Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+  profile            CandidateProfile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@index([projectScale])
+}
+
+model SkillClaim {
+  id                 String             @id @default(cuid())
+  profileId          String
+  skillName          String
+  skillCategory      SkillCategory
+  selfReported       Boolean            @default(true)
+  verificationStatus VerificationStatus @default(unverified)
+  verificationMethod VerificationMethod?
+  evidenceRef        String?
+  failureReason      String?
+  verifiedAt         DateTime?
+  createdAt          DateTime           @default(now())
+  profile            CandidateProfile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, skillName])
+  @@index([skillName, verificationStatus])
+  @@index([profileId])
+}
+
+model Credential {
+  id                 String             @id @default(cuid())
+  profileId          String
+  type               String
+  issuer             String
+  title              String
+  year               Int
+  evidenceRef        String?
+  verificationStatus VerificationStatus @default(manual_review)
+  failureReason      String?
+  verifiedAt         DateTime?
+  createdAt          DateTime           @default(now())
+  profile            CandidateProfile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+}
+
+model VerificationJob {
+  id         String           @id @default(cuid())
+  entityType EntityType
+  entityId   String
+  method     VerificationMethod
+  status     JobStatus        @default(queued)
+  attempts   Int              @default(0)
+  lastError  String?
+  nextRunAt  DateTime         @default(now())
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@index([status, nextRunAt])
+  @@index([entityType, entityId])
+}
+
+model RecruiterAccount {
+  id                   String       @id @default(cuid())
+  userId               String       @unique
+  orgName              String
+  seatCount            Int          @default(1)
+  billingStatus        BillingStatus @default(trial)
+  plan                 String       @default("pilot")
+  trialEndsAt          DateTime
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  createdAt            DateTime     @default(now())
+  user                 User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  savedSearches        SavedSearch[]
+  shortlists           Shortlist[]
+  interests            InterestRequest[]
+
+  @@index([billingStatus])
+}
+
+model SavedSearch {
+  id                 String           @id @default(cuid())
+  recruiterAccountId String
+  name               String
+  filterJson         Json
+  digestToken        String           @unique @default(cuid())
+  digestEnabled      Boolean          @default(true)
+  lastRunAt          DateTime?
+  lastDigestAt       DateTime?
+  createdAt          DateTime         @default(now())
+  recruiterAccount   RecruiterAccount @relation(fields: [recruiterAccountId], references: [id], onDelete: Cascade)
+
+  @@index([recruiterAccountId])
+  @@index([digestEnabled, lastDigestAt])
+}
+
+model Shortlist {
+  id                 String           @id @default(cuid())
+  recruiterAccountId String
+  name               String
+  createdAt          DateTime         @default(now())
+  recruiterAccount   RecruiterAccount @relation(fields: [recruiterAccountId], references: [id], onDelete: Cascade)
+  items              ShortlistItem[]
+
+  @@index([recruiterAccountId])
+}
+
+model ShortlistItem {
+  id          String           @id @default(cuid())
+  shortlistId String
+  profileId   String
+  createdAt   DateTime         @default(now())
+  shortlist   Shortlist        @relation(fields: [shortlistId], references: [id], onDelete: Cascade)
+  profile     CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([shortlistId, profileId])
+}
+
+model InterestRequest {
+  id                 String           @id @default(cuid())
+  recruiterAccountId String
+  profileId          String
+  message            String
+  status             InterestStatus   @default(sent)
+  createdAt          DateTime         @default(now())
+  respondedAt        DateTime?
+  expiresAt          DateTime
+  recruiterAccount   RecruiterAccount @relation(fields: [recruiterAccountId], references: [id], onDelete: Cascade)
+  profile            CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, status])
+  @@index([recruiterAccountId, createdAt])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorUserId  String?
+  action       String
+  entityType   String
+  entityId     String?
+  metadataJson Json?
+  createdAt    DateTime @default(now())
+  actor        User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([entityType])
+}
+
+model SkillTaxonomy {
+  id        String        @id @default(cuid())
+  name      String        @unique
+  category  SkillCategory
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now())
+
+  @@index([category, active])
+}
+
+model EmailOutbox {
+  id        String    @id @default(cuid())
+  to        String
+  subject   String
+  body      String
+  kind      String
+  sentAt    DateTime?
+  error     String?
+  createdAt DateTime  @default(now())
+
+  @@index([createdAt])
+}
+
+model LoginAttempt {
+  id         String   @id @default(cuid())
+  identifier String
+  succeeded  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([identifier, createdAt])
+}
+
+model ProcessedStripeEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
+}
