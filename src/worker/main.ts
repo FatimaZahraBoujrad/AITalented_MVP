@@ -55,8 +55,15 @@ async function cycle(): Promise<void> {
 
   if (Date.now() - lastDigest > DIGEST_EVERY_MS) {
     lastDigest = Date.now();
-    const { sent } = await runWeeklyDigests();
-    if (sent > 0) log("digest.sent", { sent });
+    // A digest failure must not stop verification polling for the whole cycle.
+    try {
+      const { sent } = await runWeeklyDigests();
+      if (sent > 0) log("digest.sent", { sent });
+    } catch (error) {
+      log("digest.failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
 
